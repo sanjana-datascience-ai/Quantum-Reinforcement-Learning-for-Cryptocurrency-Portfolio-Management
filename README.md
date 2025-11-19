@@ -39,7 +39,7 @@ Includes realistic components:
 Reward function:
 
 \[
-r = \text{Return} - \lambda \cdot \text{Volatility} - \eta \cdot \text{Turnover}
+r = Return − λ · Volatility − η · Turnover
 \]
 
 ### 3. PPO Agent (Classical)
