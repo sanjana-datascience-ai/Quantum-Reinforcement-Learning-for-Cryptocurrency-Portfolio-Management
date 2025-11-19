@@ -1,11 +1,3 @@
-###############################################################
-#  Quantum RL LIVE & HISTORICAL WEB APP (FINAL + TRAINING PLOTS)
-#  - PPO: historical backtest, training progress from history.csv
-#  - QRL: historical backtest, episode reward curve from log file
-#  - Added: QRL Cumulative Reward & Sharpe Ratio Training Curves
-#  - Live 3-asset allocation + optional QRL fine-tuning
-###############################################################
-
 import os
 import json
 import time
@@ -25,9 +17,7 @@ import plotly.express as px
 
 from stable_baselines3 import PPO
 
-# ------------------------------------------------------------------------
 # Project Imports
-# ------------------------------------------------------------------------
 from src.data.loader import load_all_symbols
 from src.data.features import add_features, align_all_assets
 from src.envs.microstruct_env import MicrostructureEnv
@@ -48,10 +38,7 @@ from src.qrl.qrl_3assets_runner import (
     DEFAULT_WINDOW as QRL_WINDOW,
 )
 
-
-###############################################################################
 # PATHS
-###############################################################################
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -69,10 +56,7 @@ FINETUNED_QRL_PATH = os.path.join(BASE_DIR, "models", "qrl_3asset_finetuned_live
 
 LOGS_DIR = os.path.join(BASE_DIR, "logs")
 
-
-###############################################################################
 # HELPERS
-###############################################################################
 
 def _format_hms(sec: float) -> str:
     sec = max(0.0, float(sec))
@@ -83,7 +67,6 @@ def _format_hms(sec: float) -> str:
 
 
 def get_latest_qrl_log_path() -> str | None:
-    """Find the latest QRL-3ASSET training log in logs/."""
     if not os.path.isdir(LOGS_DIR):
         return None
     candidates = [
@@ -92,22 +75,11 @@ def get_latest_qrl_log_path() -> str | None:
     ]
     if not candidates:
         return None
-    candidates.sort()  # latest timestamp last
+    candidates.sort()
     return os.path.join(LOGS_DIR, candidates[-1])
 
 
 def parse_qrl_log_episode_rewards(log_path: str) -> pd.DataFrame:
-    """
-    Parse QRL training log to extract episode-wise reward AND sharpe/cumret.
-
-    Example line:
-      [EP 0] steps=4096 ep_steps=4096 R=-3231.609 loss=...
-
-    Returns DataFrame with columns:
-      - episode
-      - steps
-      - reward
-    """
     episodes = []
     steps_list = []
     rewards = []
@@ -153,10 +125,7 @@ def parse_qrl_log_episode_rewards(log_path: str) -> pd.DataFrame:
         "reward": rewards
     })
 
-
-###############################################################################
 # CACHE LOADERS
-###############################################################################
 
 @st.cache_resource
 def load_ppo_model() -> PPO:
@@ -189,13 +158,9 @@ def load_qrl_agent_and_env():
 
     return agent, wrapper, train_env, val_env
 
-
-###############################################################################
 # LIVE UTILITY FUNCTIONS
-###############################################################################
 
 def reinit_actor_for_new_assets(agent: QAC3, n_assets: int):
-    """Reinitialize actor head for new asset count (used in live mode)."""
     agent.actor = nn.Sequential(
         nn.Linear(agent.actor[0].in_features, n_assets),
         nn.Softplus(),
@@ -210,7 +175,9 @@ def get_binance_client():
 def fetch_live_ohlcv(symbol: str, limit: int = 300):
     client = get_binance_client()
     data = client.fetch_ohlcv(symbol, "1h", limit=limit)
-    df = pd.DataFrame(data, columns=["timestamp", "open", "high", "low", "close", "volume"])
+    df = pd.DataFrame(data, columns=[
+        "timestamp", "open", "high", "low", "close", "volume"
+    ])
     df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms", utc=True)
     return df
 
@@ -226,10 +193,7 @@ def prepare_live_feature_dict(symbols: List[str], window: int):
 
     return align_all_assets(raw_dict)
 
-
-###############################################################################
-# QRL FINE-TUNING FUNCTION (streamlit visualization)
-###############################################################################
+# QRL FINE-TUNING FUNCTION
 
 def finetune_qrl_on_live(
     agent,
@@ -238,22 +202,10 @@ def finetune_qrl_on_live(
     max_steps: int = 400,
     gamma: float = 0.995,
 ):
-    """
-    Fine-tune the QRL model on live market data.
-    Displays:
-      - Episode reward curve
-      - Qubit activation map + entanglement proxy
-      - Allocation drift
-      - Action entropy
-      - Reward/Volatility efficiency
-      - Quantum circuit update norm
-      - Learning speed score
-    """
 
     device = torch.device("cpu")
     agent.to(device)
 
-    # ---- STREAMLIT ELEMENTS ----
     progress = st.progress(0)
     status_box = st.empty()
     reward_plot = st.empty()
@@ -264,7 +216,6 @@ def finetune_qrl_on_live(
     grad_plot = st.empty()
     speed_box = st.empty()
 
-    # ---- TRACKERS ----
     episode_rewards = []
     alloc_history = []
     qubit_history = []
@@ -275,9 +226,6 @@ def finetune_qrl_on_live(
     best_reward = -1e18
     start_time = time.time()
 
-    # =====================================================================
-    # MAIN FINE-TUNE LOOP
-    # =====================================================================
     for ep in range(episodes):
         ep_start = time.time()
 
@@ -289,7 +237,6 @@ def finetune_qrl_on_live(
 
         ep_allocs, ep_entropies = [], []
 
-        # ---------------------------- EPISODE ROLLOUT ----------------------------
         while not done and step < max_steps:
             obs_t = torch.tensor(obs, dtype=torch.float32).unsqueeze(0)
 
@@ -298,12 +245,10 @@ def finetune_qrl_on_live(
 
             ep_allocs.append(alloc_vec)
 
-            # Action entropy
             w = np.clip(alloc_vec, 1e-12, 1.0)
             w /= w.sum()
             ep_entropies.append(float(-(w * np.log(w)).sum()))
 
-            # Qubit activation
             with torch.no_grad():
                 q_out = agent._encode(obs_t).squeeze(0).cpu().numpy()
             qubit_history.append(q_out)
@@ -319,13 +264,11 @@ def finetune_qrl_on_live(
             step += 1
             ep_reward += float(reward)
 
-        # ---------------------------- UPDATE QRL ----------------------------
         before = np.concatenate([p.detach().cpu().numpy().ravel() for p in agent.vqc.parameters()])
         agent.update({"logp": traj_logp, "value": traj_val, "reward": traj_rew}, gamma)
         after = np.concatenate([p.detach().cpu().numpy().ravel() for p in agent.vqc.parameters()])
         grad_update_norms.append(float(np.linalg.norm(after - before)))
 
-        # ---------------------------- METRICS ----------------------------
         episode_rewards.append(ep_reward)
         alloc_history.append(np.array(ep_allocs))
         entropy_history_ep.append(ep_entropies)
@@ -333,13 +276,11 @@ def finetune_qrl_on_live(
         vol = float(np.std(traj_rew) + 1e-12)
         efficiency_history.append(float(ep_reward / vol))
 
-        # save best model
         if ep_reward > best_reward:
             best_reward = ep_reward
             os.makedirs(os.path.dirname(FINETUNED_QRL_PATH), exist_ok=True)
             torch.save(agent.state_dict(), FINETUNED_QRL_PATH)
 
-        # ---------------------------- STREAMLIT UI UPDATE ----------------------------
         pct = int((ep + 1) / episodes * 100)
         progress.progress(pct)
 
@@ -356,13 +297,11 @@ def finetune_qrl_on_live(
             """
         )
 
-        # --- Reward curve ---
         reward_plot.plotly_chart(
-            px.line(y=episode_rewards, title="Fine-tuning Episode Rewards (Y = Reward, X = Episode)"),
+            px.line(y=episode_rewards, title="Fine-tuning Episode Rewards (Y=Reward, X=Episode)"),
             use_container_width=True
         )
 
-        # --- Qubit heatmap ---
         if len(qubit_history) >= 20:
             qmat = np.stack(qubit_history[-80:], axis=0)
             df_q = pd.DataFrame(qmat, columns=[f"q{i}" for i in range(qmat.shape[1])])
@@ -377,31 +316,26 @@ def finetune_qrl_on_live(
             )
             qubit_map.plotly_chart(qmap_fig, use_container_width=True)
 
-        # --- Allocation drift ---
         drift_df = pd.DataFrame(
             alloc_history[-1],
             columns=[f"A{i}" for i in range(alloc_history[-1].shape[1])]
         )
         alloc_plot.plotly_chart(px.line(drift_df, title="Allocation Drift"), use_container_width=True)
 
-        # --- Entropy ---
         entropy_plot.plotly_chart(
             px.line(y=entropy_history_ep[-1], title="Action Entropy"), use_container_width=True
         )
 
-        # --- Efficiency ---
         eff_plot.plotly_chart(
             px.line(y=efficiency_history, title="Reward-to-Volatility Efficiency"),
             use_container_width=True
         )
 
-        # --- Gradient norm ---
         grad_plot.plotly_chart(
             px.line(y=grad_update_norms, title="Quantum Circuit Update Norm"),
             use_container_width=True
         )
 
-        # --- Learning speed ---
         if len(episode_rewards) > 2:
             score = float(
                 0.5 * np.tanh((episode_rewards[-1] - episode_rewards[0]) / 1000.0)
@@ -413,24 +347,18 @@ def finetune_qrl_on_live(
     status_box.success("Fine-tuning complete. Best model saved.")
     return agent
 
-###############################################################################
 # STREAMLIT UI
-###############################################################################
 
 st.set_page_config(page_title="Quantum RL Portfolio Manager", layout="wide")
 st.title("Quantum Reinforcement Learning for Crypto Portfolio Management")
 
 tab_hist, tab_live = st.tabs(["Historical Backtest", "Live Allocation"])
 
-
-###############################################################################
 # TAB 1 — HISTORICAL (PPO + QRL + TRAINING CURVES)
-###############################################################################
 with tab_hist:
 
     st.header("Historical Model Comparison (PPO vs QRL)")
 
-    # ------------------ Asset selection & OHLCV preview ------------------
     assets = sorted(load_all_symbols().keys())
     sel_asset = st.selectbox("Choose Asset", assets)
 
@@ -439,7 +367,6 @@ with tab_hist:
     st.subheader(f"{sel_asset} — OHLCV (last 200 rows)")
     st.dataframe(df.tail(200), use_container_width=True)
 
-    # Price + RSI
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=df["timestamp"], y=df["close"], name="Close"))
     if "rsi_14" in df.columns:
@@ -448,7 +375,6 @@ with tab_hist:
 
     col1, col2 = st.columns(2)
 
-    # ------------------ PPO summary ------------------
     with col1:
         st.header("PPO Evaluation")
         if os.path.exists(PPO_FINAL_JSON):
@@ -458,7 +384,6 @@ with tab_hist:
         else:
             st.info("PPO final_metrics.json not found.")
 
-    # ------------------ QRL summary ------------------
     with col2:
         st.header("QRL Evaluation")
         qrl_final_json = os.path.join(QRL_RESULTS_DIR, "final.json")
@@ -469,12 +394,10 @@ with tab_hist:
         else:
             st.info("QRL final.json not found.")
 
-    # ------------------ Training progress plots ------------------
     st.header("Training Progress")
 
     ppo_col, qrl_col = st.columns(2)
 
-    # PPO training curve (history.csv)
     with ppo_col:
         st.subheader("PPO Training Curve")
 
@@ -512,7 +435,6 @@ with tab_hist:
         else:
             st.info("PPO history.csv not found.")
 
-    # QRL episode rewards + cumulative reward + sharpe curves
     with qrl_col:
         st.subheader("QRL Episode Reward Curve")
 
@@ -540,7 +462,6 @@ with tab_hist:
                     use_container_width=True
                 )
 
-        # -------------- Cumulative Reward & Sharpe (from validation snapshots) --------------
         st.subheader("QRL Training — Cumulative Return & Sharpe")
 
         val_files = sorted([
@@ -565,11 +486,13 @@ with tab_hist:
 
             fig_qrl = go.Figure()
             fig_qrl.add_trace(go.Scatter(
-                x=df_val["step"], y=df_val["cumulative_return"],
+                x=df_val["step"],
+                y=df_val["cumulative_return"],
                 name="Cumulative Return"
             ))
             fig_qrl.add_trace(go.Scatter(
-                x=df_val["step"], y=df_val["sharpe"],
+                x=df_val["step"],
+                y=df_val["sharpe"],
                 name="Sharpe Ratio",
                 yaxis="y2"
             ))
@@ -581,7 +504,6 @@ with tab_hist:
             )
             st.plotly_chart(fig_qrl, use_container_width=True)
 
-    # ------------------- Comparison table -------------------
     st.header("PPO vs QRL Summary")
 
     if os.path.exists(PPO_QRL_COMPARISON_CSV):
@@ -592,10 +514,8 @@ with tab_hist:
     else:
         st.info("Comparison CSV not found.")
 
+# TAB 2 — LIVE ALLOCATION
 
-###############################################################################
-# TAB 2 — LIVE ALLOCATION (QRL ONLY)
-###############################################################################
 with tab_live:
 
     st.header("Live 3-Asset Allocation (QRL Only)")
@@ -621,12 +541,15 @@ with tab_live:
 
             agent, wrapper, train_env, _ = load_qrl_agent_and_env()
 
-            # Change actor head to output 3 weights
+            # reinitialize actor head for new assets
             agent = reinit_actor_for_new_assets(agent, 3)
+
+            # >>> FIX: rebuild optimizer so new actor parameters are trainable
+            if hasattr(agent, "_build_optimizer"):
+                agent._build_optimizer()
 
             live_env = MicrostructureEnv(data_dict=data_dict, window=QRL_WINDOW)
 
-            # Optional fine-tune
             if do_ft:
                 st.subheader("QRL Fine-Tuning Dashboard")
                 agent = finetune_qrl_on_live(
@@ -636,7 +559,6 @@ with tab_live:
                     max_steps=ft_steps,
                 )
 
-            # Final inference
             obs, _ = live_env.reset()
             obs_t = torch.tensor(obs, dtype=torch.float32).unsqueeze(0)
             q_w = agent.act(obs_t)[0].squeeze(0).detach().numpy()
@@ -653,7 +575,6 @@ with tab_live:
                 "amount_usdt": q_alloc
             }))
 
-            # Download trained model
             if os.path.exists(FINETUNED_QRL_PATH):
                 with open(FINETUNED_QRL_PATH, "rb") as f:
                     st.download_button(
@@ -665,4 +586,3 @@ with tab_live:
 
         except Exception as e:
             st.error(f"Live QRL Allocation Failed: {e}")
-
