@@ -139,7 +139,6 @@ streamlit run app.py
 * Exploring hybrid transformer–quantum architectures
 * Integration with real-time automated trading systems
 
-#Author
-Sanjana R
+# Author: Sanjana R
 B.Tech (Hons) — Data Science
 Vidyashilp University, Bengaluru
